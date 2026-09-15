@@ -96,10 +96,11 @@ Build an implementation plan for a story in `current/`:
 3. Spawn a **story-planner** agent using the Agent tool:
    - `subagent_type: "story-planner"`
    - Pass the full story content, project context, and tech stack in the prompt
-   - The planner will spawn specialist agents in parallel and return a consolidated plan
-4. Write the returned plan into the story file's `## Implementation Plan` section (replace the placeholder or existing content)
-5. Set `planned_at` (and refresh `updated_at`) in the metadata block — see [Story Metadata](#story-metadata)
-6. Present the plan to the user for review
+   - The planner picks its team from what the story touches (product-manager and developer always; ui-ux-designer and accessibility-specialist only for UI work; best-practices-engineer only for real architectural, performance, or security surface), spawns them in parallel, and returns a consolidated plan
+4. If the returned plan has a `### Proposed story changes` section, split it off: it contains acceptance criteria, edge cases, and scope changes for the story itself, not implementation steps. Present them to the user and ask which to adopt; apply the accepted ones to the story's acceptance criteria and scope sections. Leave this section out of the written plan.
+5. Write the rest of the plan into the story file's `## Implementation Plan` section (replace the placeholder or existing content)
+6. Set `planned_at` (and refresh `updated_at`) in the metadata block — see [Story Metadata](#story-metadata)
+7. Present the plan to the user for review
 
 ### `implement <story-name>`
 
@@ -121,7 +122,7 @@ Execute the implementation plan for a story in `current/`:
    - **Accessibility requirements** beyond obvious markup hygiene → **accessibility-specialist**
    - **Design-system or best-practices judgment calls** → **best-practices-engineer**
    - **Unresolved scope or acceptance-criteria questions** → **product-manager**
-   - **Code work in an unfamiliar or large area** that would need substantial exploration before you could write it → **developer**
+   - **Code work in an unfamiliar or large area** that would need substantial exploration before you could write it → **developer** (it plans by default; tell it to use implement mode)
    - Several independent steps could be built in parallel, and doing so is meaningfully faster.
 
    A simple plan often needs no agents at all. A plan may also be mixed — do the routine steps yourself and delegate only the ones above. Say briefly which way you're going and why before starting, so the user can redirect.
@@ -136,7 +137,7 @@ Execute the implementation plan for a story in `current/`:
    - Refresh `updated_at` in the metadata block — see [Story Metadata](#story-metadata)
    - Report a summary of what was implemented: files created/modified, key decisions made, whether the work was done directly or delegated, and any acceptance criteria that still need manual verification
 
-**Important**: Agents doing implementation work must be told explicitly to **write code, create files, and make edits** — not just provide recommendations. Pass them specific file paths and the current file contents when relevant.
+**Important**: Every specialist agent is advisory by default. Agents doing implementation work must be told explicitly to use their **implement mode** and to **write code, create files, and make edits** — not just provide recommendations. Pass them specific file paths and the current file contents when relevant.
 
 ### `review <story-name>`
 
@@ -148,9 +149,9 @@ Review the story branch's changes against the story's acceptance criteria:
    - Diff against the base branch using the merge-base: `git diff $(git merge-base main HEAD)...HEAD` (substitute the actual default branch if it isn't `main`). Include uncommitted changes in the review and note that they are uncommitted.
    - If there are no changes to review, say so and stop.
 3. Spawn specialist review agents **in parallel** using the Agent tool. Each prompt must include the full story content (especially the acceptance criteria), the diff (or the list of changed files with instructions to read them), and project context:
-   - **product-manager** — verify each acceptance criterion against the actual changes. For each criterion, return a verdict: ✅ met, ⚠️ partially met / needs manual verification, or ❌ not met, with evidence (file paths and what was found).
+   - **product-manager** — tell it to use **acceptance verification mode**: verify each acceptance criterion against the actual changes and return, for each criterion, a verdict of ✅ met, ⚠️ partially met / needs manual verification, or ❌ not met, with evidence (file paths and what was found).
    - **pr-review-toolkit:code-reviewer** — review the changed code for quality, project conventions, and potential issues.
-   - If the changes include UI work, also spawn a **ui-ux-designer**; if they touch user-facing markup or interactions, also spawn an **accessibility-specialist**. Skip these when not relevant.
+   - If the changes include UI work, also spawn a **ui-ux-designer**; if they touch user-facing markup or interactions, also spawn an **accessibility-specialist** in audit mode. Skip these when not relevant.
 4. Consolidate the agents' findings into a review with two parts:
    - **Acceptance criteria**: a per-criterion checklist with verdict and evidence
    - **Code review findings**: notable issues or suggestions, ordered by severity
