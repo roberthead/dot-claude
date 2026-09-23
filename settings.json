@@ -47,7 +47,7 @@
   "tui": "fullscreen",
   "autoDreamEnabled": true,
   "skipDangerousModePermissionPrompt": true,
-  "theme": "auto",
+  "theme": "dark-daltonized",
   "agentPushNotifEnabled": true,
   "feedbackSurveyState": {
     "lastShownTime": 1754075652766
