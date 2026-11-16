@@ -1,8 +1,9 @@
-# Track only agents/ and skills/; everything else in ~/.claude is local state.
+# Track only the allowlisted files below; everything else in ~/.claude is local state.
 /*
 !/.gitignore
 !/CLAUDE.md
 !/settings.json
+!/RTK.md
 !/agents/
 !/skills/
 .DS_Store
