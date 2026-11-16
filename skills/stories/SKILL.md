@@ -1,6 +1,6 @@
 ---
 name: stories
-description: "Manage user stories: create, activate (with story branch), plan, implement (directly or with specialist agents), review against acceptance criteria, finish with learnings, and generate kanban board. Works across all projects."
+description: "Manage user stories: create, activate (with story branch), plan, implement, review against acceptance criteria, finish with learnings, and generate kanban board. Works across all projects."
 argument-hint: "<command> [story-name]"
 allowed-tools: Read Write Edit Bash Glob Grep Agent
 user-invocable: true
@@ -10,24 +10,13 @@ user-invocable: true
 
 You manage user stories in the `user-stories/` directory of the current project. Stories move through three columns: `backlog/`, `current/`, and `done/`. A kanban board at `user-stories/index.html` reflects the current state.
 
-## Commands
+Parse `$ARGUMENTS` for the command and story name. Match a story by filename, with or without `.md`. If `user-stories/` doesn't exist and the command isn't `init`, suggest `/stories init`. If the command isn't recognized, list the available commands.
 
-Parse `$ARGUMENTS` to determine which command to run:
+## Commands
 
 ### `init`
 
-Create the user-stories directory structure and kanban board:
-
-```
-user-stories/
-  backlog/
-  current/
-  done/
-  _template.md
-  index.html
-```
-
-Create `_template.md` with this content (note the leading metadata block — see [Story Metadata](#story-metadata)):
+Create `user-stories/` with `backlog/`, `current/`, `done/`, a `_template.md`, and the board. The template:
 
 ```markdown
 <!--
@@ -61,158 +50,85 @@ SO THAT [benefit]
 [to be filled in by /stories plan]
 ```
 
-Then generate the kanban board with the `board` logic — this copies the bundled `board-template.html` and injects an empty data set (`{ backlog: [], active: [], done: [] }`), giving a fresh project the full-featured board (markdown modal, collapsible columns, optional story blurbs, responsive light theme) from the start.
+Generate the board with the `board` logic and an empty data set.
 
 ### `new <story-name>`
 
-Create a new story file in `user-stories/backlog/`. The story name argument becomes the filename (kebab-cased, with `.md` extension). Copy from `_template.md` if it exists, otherwise use the template above. Replace `[Title]` with a title-cased version of the story name.
+Create `user-stories/backlog/<kebab-case-name>.md` from `_template.md` (or the template above), with `[Title]` replaced by the title-cased name. Set `created_at` and `updated_at`.
 
-Ensure the file starts with the metadata block (add it if the template lacked one) and set `created_at` and `updated_at` to the current timestamp — see [Story Metadata](#story-metadata).
+### `activate <story-name>` (alias: `start`)
 
-After creating the file, regenerate the board with the `board` logic.
+Move a story from `backlog/` to `current/` on a new branch:
 
-### `activate <story-name>`
-
-Move a story from `backlog/` to `current/` and cut a working branch:
-
-1. Find the `.md` file matching `<story-name>` in `user-stories/backlog/` (match by filename with or without `.md` extension)
-2. If in a git repo, create a story branch from `main`:
-   - The branch name is `story/<story-name>` (e.g. `story/add-new-dinos`)
-   - Before creating it, check the repo state. If the working tree has uncommitted changes, the current branch isn't `main`, or the branch `story/<story-name>` already exists, **stop and describe the situation to the user** and let them decide how to proceed (e.g. stash, commit, branch from the current HEAD instead, or reuse the existing branch). Do not silently work around it.
-   - If the default branch is named something other than `main` (e.g. `master`), use that as the base and mention it.
-   - Otherwise, run `git checkout -b story/<story-name> main`
-3. Move the story file to `user-stories/current/` using `git mv` if in a git repo, otherwise `mv` (do this after switching to the story branch, so the move is committed on the branch)
-4. Set `activated_at` (and refresh `updated_at`) in the metadata block — see [Story Metadata](#story-metadata)
-5. Regenerate the board
-
-Note `start` works as an alias for `activate`
+1. In a git repo, create `story/<story-name>` from the default branch (usually `main`). If the working tree is dirty, you're not on the default branch, or the branch already exists, stop and describe the situation so the user can decide.
+2. After switching branches, move the file to `current/` (`git mv` in a repo, otherwise `mv`).
+3. Set `activated_at`.
 
 ### `plan <story-name>`
 
-Build an implementation plan for a story in `current/`:
+Write an implementation plan for a story in `current/`:
 
-1. Read the story file from `user-stories/current/<story-name>.md`
-2. Read the project's CLAUDE.md and explore relevant parts of the codebase to understand the tech stack and architecture
-3. Spawn a **story-planner** agent using the Agent tool:
-   - `subagent_type: "story-planner"`
-   - Pass the full story content, project context, and tech stack in the prompt
-   - The planner picks its team from what the story touches (product-manager and developer always; ui-ux-designer and accessibility-specialist only for UI work; best-practices-engineer only for real architectural, performance, or security surface), spawns them in parallel, and returns a consolidated plan
-4. If the returned plan has a `### Proposed story changes` section, split it off: it contains acceptance criteria, edge cases, and scope changes for the story itself, not implementation steps. Present them to the user and ask which to adopt; apply the accepted ones to the story's acceptance criteria and scope sections. Leave this section out of the written plan.
-5. Write the rest of the plan into the story file's `## Implementation Plan` section (replace the placeholder or existing content)
-6. Set `planned_at` (and refresh `updated_at`) in the metadata block — see [Story Metadata](#story-metadata)
-7. Present the plan to the user for review
+1. Read the story, the project's CLAUDE.md, and the code the story touches. Find the closest existing feature and plan to follow its pattern.
+2. Write the plan into `## Implementation Plan`, replacing what's there: the approach in a sentence or two, ordered steps with real file paths, data model changes (or "none"), the tests to add, and risks or open questions. For user-facing UI, include the states (empty, loading, error, overflow) and accessibility needs the step must handle, given the project's context.
+3. Gaps in the story itself (missing acceptance criteria, unhandled edge cases, scope worth cutting) are not plan steps. List them separately, ask the user which to adopt, and apply the accepted ones to the story.
+4. Set `planned_at`, then show the user the plan.
 
 ### `implement <story-name>`
 
-Execute the implementation plan for a story in `current/`:
-
-1. Read the story file from `user-stories/current/<story-name>.md`
-2. Look for an `## Implementation Plan` section. If it's missing or still contains the placeholder text `[to be filled in by /stories plan]`, tell the user to run `/stories plan <story-name>` first and stop.
-3. Read the project's CLAUDE.md and explore the codebase to understand the tech stack, architecture, and conventions.
-4. Parse the implementation plan into discrete steps.
-5. **Decide how to execute — directly or with specialist agents.** Delegation costs a round trip and a fresh context; it pays off only when a step needs a perspective or an amount of exploration you don't already have. Judge this per step, not for the whole plan.
-
-   **Implement the step yourself** when all of these hold:
-   - It is ordinary code work — the kind of change the plan already spells out — with no open design, scope, or accessibility question.
-   - You have already read the files it touches (or they are few and small enough to read now).
-   - It is confined to a handful of files in one area of the codebase.
-
-   **Spawn a specialist agent** when any of these hold — pick the agent by what the step actually needs:
-   - **UI/component creation or visual styling** with real design latitude → **ui-ux-designer**
-   - **Accessibility requirements** beyond obvious markup hygiene → **accessibility-specialist**
-   - **Design-system or best-practices judgment calls** → **best-practices-engineer**
-   - **Unresolved scope or acceptance-criteria questions** → **product-manager**
-   - **Code work in an unfamiliar or large area** that would need substantial exploration before you could write it → **developer** (it plans by default; tell it to use implement mode)
-   - Several independent steps could be built in parallel, and doing so is meaningfully faster.
-
-   A simple plan often needs no agents at all. A plan may also be mixed — do the routine steps yourself and delegate only the ones above. Say briefly which way you're going and why before starting, so the user can redirect.
-
-6. Execute the plan step by step, in the mode chosen for each step:
-   - **Direct**: make the edits yourself, following the plan and the project's conventions.
-   - **Delegated**: spawn the specialist agent(s) with the Agent tool. Spawn independent steps in parallel; run a step sequentially when it depends on a prior step's output. Each agent prompt must include the full story content, the specific step to implement, the project context (tech stack, conventions, relevant file contents), and explicit instructions to write code (not just research). Review each agent's work before moving on; if its output needs correction, fix it directly.
-
-7. After all steps are complete:
-   - Run the project's test suite if one exists (check CLAUDE.md for the test command)
-   - Verify the acceptance criteria from the story are met
-   - Refresh `updated_at` in the metadata block — see [Story Metadata](#story-metadata)
-   - Report a summary of what was implemented: files created/modified, key decisions made, whether the work was done directly or delegated, and any acceptance criteria that still need manual verification
-
-**Important**: Every specialist agent is advisory by default. Agents doing implementation work must be told explicitly to use their **implement mode** and to **write code, create files, and make edits** — not just provide recommendations. Pass them specific file paths and the current file contents when relevant.
+1. Read the story. If `## Implementation Plan` is missing or still the placeholder, tell the user to run `/stories plan <story-name>` and stop.
+2. Implement the plan, following the project's conventions. Use parallel agents only when steps are independent and doing them at once is meaningfully faster.
+3. Run the project's tests (see CLAUDE.md) and check each acceptance criterion.
+4. Refresh `updated_at` and report what changed, how the tests went, and which criteria still need manual verification.
 
 ### `review <story-name>`
 
-Review the story branch's changes against the story's acceptance criteria:
+Review the story branch against its acceptance criteria:
 
-1. Read the story file from `user-stories/current/<story-name>.md` and extract the `## Acceptance Criteria` section. If the story isn't in `current/` or has no acceptance criteria, tell the user and stop.
-2. Determine the diff to review:
-   - Identify the story branch (`story/<story-name>`). If the current branch isn't the story branch, tell the user and ask before proceeding.
-   - Diff against the base branch using the merge-base: `git diff $(git merge-base main HEAD)...HEAD` (substitute the actual default branch if it isn't `main`). Include uncommitted changes in the review and note that they are uncommitted.
-   - If there are no changes to review, say so and stop.
-3. Spawn specialist review agents **in parallel** using the Agent tool. Each prompt must include the full story content (especially the acceptance criteria), the diff (or the list of changed files with instructions to read them), and project context:
-   - **product-manager** — tell it to use **acceptance verification mode**: verify each acceptance criterion against the actual changes and return, for each criterion, a verdict of ✅ met, ⚠️ partially met / needs manual verification, or ❌ not met, with evidence (file paths and what was found).
-   - **pr-review-toolkit:code-reviewer** — review the changed code for quality, project conventions, and potential issues.
-   - If the changes include UI work, also spawn a **ui-ux-designer**; if they touch user-facing markup or interactions, also spawn an **accessibility-specialist** in audit mode. Skip these when not relevant.
-4. Consolidate the agents' findings into a review with two parts:
-   - **Acceptance criteria**: a per-criterion checklist with verdict and evidence
-   - **Code review findings**: notable issues or suggestions, ordered by severity
-5. Write the consolidated review into a `## Review` section in the story file (replace any existing `## Review` section — it represents the latest review). Include the date and the commit reviewed (`git rev-parse --short HEAD`). Refresh `updated_at` in the metadata block — see [Story Metadata](#story-metadata).
-6. Present the review to the user in the conversation, leading with the acceptance-criteria verdicts and calling out anything that blocks `finish`.
+1. Read the story in `current/`. If it isn't there or has no acceptance criteria, say so and stop. If you're not on `story/<story-name>`, ask before continuing.
+2. Collect the diff: `git diff $(git merge-base main HEAD)` (use the actual default branch), which includes uncommitted changes, plus any untracked files from `git status`. Note anything uncommitted. If there's no diff, say so and stop.
+3. Spawn one general-purpose agent for an independent read; it hasn't seen the implementation, so it isn't anchored on it. Give it the full story, the diff command, and CLAUDE.md's location, but not your own conclusions. Ask it for:
+   - a verdict on each acceptance criterion (✅ met, ⚠️ partial or needs manual check, ❌ not met) with `file:line` evidence, where a criterion with no evidence is ⚠️;
+   - correctness bugs and convention problems in the diff, most severe first, confirmed in the source;
+   - for UI changes, accessibility and usability problems (keyboard and touch operability, focus, contrast, target size, states).
+4. Check its findings against the code, drop any you can't confirm, and write a `## Review` section into the story (replacing any earlier one) with the date, `git rev-parse --short HEAD`, the criteria table, and the findings. Refresh `updated_at`.
+5. Show the user the review, leading with the criteria verdicts and anything that blocks `finish`.
 
 ### `finish <story-name>`
 
-Close out a story:
-
-1. Find the story in `user-stories/current/`
-2. Summarize what we learned in the planning and implementation flow — what went well, what was surprising, what to do differently next time. Do not ask the user to approve or adjust the learnings; the story file is editable after the fact.
-3. Add a `## Learnings` section to the story file with the essential contents of that reflection.
-4. Set `finished_at` (and refresh `updated_at`) in the metadata block — see [Story Metadata](#story-metadata)
-5. Move the file from `current/` to `done/` using `git mv` if in a git repo, otherwise `mv`
-6. Regenerate the board
+1. Add a `## Learnings` section to the story: what went well, what was surprising, and what to do differently next time. Don't ask the user to approve it; they can edit the file later.
+2. Set `finished_at` and move the file to `done/` (`git mv` in a repo, otherwise `mv`).
+3. If you're on a `story/` branch, bring the work onto the default branch (usually `main`; use the actual one):
+   1. If the working tree has uncommitted changes other than the story file, stop and describe them so the user can decide. Otherwise commit the story's learnings and move.
+   2. Run `git pull --rebase origin main`, then `git switch main`, then `git rebase -` to fast-forward `main` onto the story branch.
+   3. If any step hits a conflict, stop and describe it so the user can resolve it. Don't push.
 
 ### `open`
 
-Open the kanban board in the user's default browser:
-
-1. Check that `user-stories/index.html` exists. If not, suggest running `/stories init` first.
-2. Run `open user-stories/index.html` (macOS) to open it in the default browser.
+Open `user-stories/index.html` in the default browser (`open` on macOS, `xdg-open` on Linux). If it doesn't exist, suggest `/stories init`.
 
 ### `board`
 
-Regenerate `user-stories/index.html` from the current directory state, using the bundled template at `board-template.html` (in this skill's directory). The template renders a feature-rich board — a click-to-open modal that fetches and renders each story's markdown (including GFM task-list checkboxes), collapsible columns whose state persists in `localStorage`, optional per-story description blurbs, and a responsive light theme. Do **not** hand-write a board from scratch; populate the template.
-
-The board is data-driven: the template contains a single placeholder, `/*STORIES_DATA*/`, where a JavaScript object literal is injected:
+Regenerate `user-stories/index.html` by copying `board-template.html` from this skill's directory and replacing its `/*STORIES_DATA*/` placeholder with an object literal. Don't hand-write the board.
 
 ```js
 {
   backlog: [ { title, path, story? }, ... ],
-  active:  [ ... ],  // sourced from the current/ directory
+  active:  [ ... ],  // from current/
   done:    [ ... ],
 }
 ```
 
-Each entry's fields:
-- `title` — from the first `# ` heading in the story file (strip a leading `Story: ` prefix if present).
-- `path` — relative path from `user-stories/` to the `.md` file (e.g. `backlog/foo.md`). Used both as the card link and the modal fetch target, so it must stay relative.
-- `story` — an optional one-line description shown in italic on the card. **Curated**; not derivable from the file. Omit when unknown.
+- `title`: the story's first `# ` heading, without a leading `Story: `.
+- `path`: relative to `user-stories/`, e.g. `backlog/foo.md`. It is both the card link and the modal's fetch target, so it must stay relative.
+- `story`: an optional one-line blurb, written by hand. It can't be derived from the file, so carry it over from the existing `index.html` by matching `path`. If a regeneration would lose blurbs you can't recover, stop and tell the user.
 
-**Preserve the curated `story` blurbs.** They are hand-maintained and cannot be reconstructed from the files. Before writing, parse the existing `index.html`'s `stories` object (if the file exists) into a map keyed by `path`. When rebuilding:
+Scan `backlog/`, `current/`, and `done/` recursively for `.md` files, excluding `_template.md`, and drop entries whose files are gone. Sort each column newest first: `backlog` by `updated_at`, `active` by `activated_at`, `done` by `finished_at`. Break ties by title, and sort missing timestamps last.
 
-1. Scan `user-stories/backlog/`, `user-stories/current/`, and `user-stories/done/` recursively for `.md` files (exclude `_template.md`).
-2. For each file found, build an entry: refresh `title` from the heading; carry over `story` from the matching existing entry by `path` if present, otherwise leave it absent.
-3. Drop entries whose files no longer exist.
-4. Place each entry in the column matching its top-level directory — `backlog/` → `backlog`, `current/` → `active`, `done/` → `done`.
-5. Sort each column using the timestamps in each story's [metadata block](#story-metadata), newest first:
-   - **`done`** — by `finished_at` **descending** (most recently completed at the top).
-   - **`backlog`** — by `updated_at` **descending** (most recently touched at the top).
-   - **`active`** — by `activated_at` descending.
-   - Tie-break on equal timestamps by `title` ascending, so the order stays stable across regenerations. If a timestamp is missing, treat it as the oldest (sorts to the bottom).
-6. Inject the resulting object literal at `/*STORIES_DATA*/` in a copy of `board-template.html` and write it to `user-stories/index.html`.
-
-When in doubt about a regeneration that would lose curated `story` values you cannot recover, stop and tell the user rather than overwriting.
+Regenerate the board after every command that creates, moves, or retitles a story.
 
 ## Story Metadata
 
-Every story file begins with an HTML-comment block that records lifecycle timestamps. It sits at the very top of the file, before the `# Story:` heading, followed by a blank line:
+Every story file starts with this block, followed by a blank line:
 
 ```markdown
 <!--
@@ -225,32 +141,7 @@ metadata:
 -->
 ```
 
-Rules:
-
-- **All five keys are always present.** Fill a value only when its status event has happened; otherwise leave the value empty (`planned_at:` with nothing after the colon — no placeholder text).
-- **Timestamps are ISO 8601 with a timezone offset** (e.g. `2026-06-14T11:45:33-07:00`). Get the current time with `date +%Y-%m-%dT%H:%M:%S%z`, then insert a colon into the offset (`-0700` → `-07:00`) so it matches `git`'s `%cI` format.
-- **Align values** one space after the longest key, `activated_at:` (so the other keys get extra padding before their value).
-- **Preserve existing values when editing.** Set only the timestamp for the event you're performing, and always refresh `updated_at` to the current time.
-
-Which command sets what:
-
-| Command | Sets |
-| --- | --- |
-| `new` | `created_at`, `updated_at` |
-| `activate` | `activated_at`, `updated_at` |
-| `plan` | `planned_at`, `updated_at` |
-| `implement` / `review` | `updated_at` |
-| `finish` | `finished_at`, `updated_at` |
-
-Any other edit you make to a story file should also refresh `updated_at`.
-
-## General Rules
-
-- Always use relative links in the kanban board (e.g., `backlog/story.md`, not absolute paths)
-- Never regenerate the board by hand-writing HTML — always populate `board-template.html`, and always preserve curated `story` blurbs (see the `board` command)
-- Story filenames should be kebab-case: "Add New Dinos" becomes `add-new-dinos.md`
-- When a command is not recognized, show available commands
-- After any mutation (new, activate, implement, finish), always regenerate the board
-- When regenerating the board, sort each column by its metadata timestamp descending — `done` by `finished_at`, `backlog` by `updated_at`, `active` by `activated_at` (see the `board` command)
-- Keep the metadata block current: set the status event's timestamp and refresh `updated_at` whenever you touch a story file (see [Story Metadata](#story-metadata))
-- If `user-stories/` doesn't exist and the command isn't `init`, suggest running `/stories init` first
+- All five keys are always present. An event that hasn't happened yet keeps an empty value.
+- Timestamps are ISO 8601 with a colon in the offset, matching git's `%cI`. Get one with `date +%Y-%m-%dT%H:%M:%S%z` and change `-0700` to `-07:00`.
+- Values are aligned one space after `activated_at:`, the longest key.
+- When a command sets an event's timestamp, keep the other values. Refresh `updated_at` on every edit to a story file. If a file lacks the block, add it.
