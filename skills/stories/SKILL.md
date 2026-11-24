@@ -1,6 +1,6 @@
 ---
 name: stories
-description: "Manage user stories: create, activate (with story branch), plan, implement, review against acceptance criteria, finish with learnings, and generate kanban board. Works across all projects."
+description: "Manage user stories: create, activate (with story branch), plan, implement, review against acceptance criteria, finish with learnings, glean recurring learnings into the project's learnings file, and generate kanban board. Works across all projects."
 argument-hint: "<command> [story-name]"
 allowed-tools: Read Write Edit Bash Glob Grep Agent
 user-invocable: true
@@ -101,6 +101,25 @@ Review the story branch against its acceptance criteria:
    1. If the working tree has uncommitted changes other than the story file, stop and describe them so the user can decide. Otherwise commit the story's learnings and move.
    2. Run `git pull --rebase origin main`, then `git switch main`, then `git rebase -` to fast-forward `main` onto the story branch.
    3. If any step hits a conflict, stop and describe it so the user can resolve it. Don't push.
+
+### `glean` (alias: `gather-learnings`)
+
+Distill the lessons of finished stories into the project's learnings file, so later work starts from them:
+
+1. Find the learnings file: a `learnings.md` in any letter case, at the project root or in `docs/`. Read it if it exists. If there is none, plan to create `docs/learnings.md` when the project has a `docs/` directory, and `learnings.md` at the root otherwise.
+2. Read the `## Learnings` section of every story in `done/`. Don't invent learnings for a story that has none. If no story has any, say so and stop without creating or changing files.
+3. Choose what belongs in the file. A learning qualifies when it is:
+   - recurring: the same lesson, in whatever words, shows up in two or more stories; or
+   - important: it appears once, but ignoring it would be costly, or it would change how a different story gets planned, built, or reviewed.
+
+   Leave out what only matters to its own story, what CLAUDE.md already says, and what the code, tests, or linter already enforce.
+4. Merge the chosen learnings into the file; don't rewrite it.
+   - Keep the entries already there, including hand-written ones.
+   - When a story supports an existing entry, add the story to that entry's sources, and sharpen the entry if the story adds something. Don't add a second entry for the same lesson.
+   - If the stories contradict an existing entry, leave the entry alone and tell the user.
+   - Follow the file's existing structure and entry format. In a new file, start with a title and a sentence on what the file is for, group entries under theme headings (planning, testing, and so on), and write each entry as a bullet: the lesson in bold, stated as guidance that applies beyond the story it came from; a sentence or two of the concrete evidence; then the source stories as plain paths (`user-stories/done/<name>.md`).
+5. Make sure the project's CLAUDE.md (at the root or in `.claude/`) lists the learnings file as a reference: its path and when to read it, such as before planning a story. If CLAUDE.md already names the path, leave it. Otherwise add the line to an existing section of references or docs, or to a new `## References` section. Write a plain path, not an `@` import, so the file is read when needed instead of loaded into every session. If the project has no CLAUDE.md, create one holding just this reference.
+6. Report the entries added, the entries that gained sources, the stories with no learnings, and any contradictions. Don't commit.
 
 ### `open`
 
