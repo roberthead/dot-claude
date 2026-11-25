@@ -1,7 +1,7 @@
 ---
 name: stories
 description: "Manage user stories: create, activate (with story branch), plan, implement, review against acceptance criteria, finish with learnings, glean their learnings into a curated project learnings file, and generate kanban board. Works across all projects."
-argument-hint: "<command> [story-name]"
+argument-hint: "<command> [story-name | --all]"
 allowed-tools: Read Write Edit Bash Glob Grep Agent
 user-invocable: true
 ---
@@ -102,12 +102,15 @@ Review the story branch against its acceptance criteria:
    2. Run `git pull --rebase origin main`, then `git switch main`, then `git rebase -` to fast-forward `main` onto the story branch.
    3. If any step hits a conflict, stop and describe it so the user can resolve it. Don't push.
 
-### `glean` (alias: `gather-learnings`)
+### `glean [--all]` (alias: `gather-learnings`)
 
 Distill the learnings of finished stories into the project's learnings file, and edit that file down to a short list worth reading before the next story:
 
-1. Find the learnings file: `learnings.md` in any letter case, at the project root or in `docs/`. If there is none, the new file goes in `docs/` when the project has that directory, and at the root otherwise.
-2. Read the file, if it exists, and the `## Learnings` section of every story in `done/`. Don't invent learnings for a story whose section is missing or says "None". If there is no file and no story has learnings, say so and stop.
+1. Find the learnings file: `learnings.md` in any letter case, at the project root or in `docs/`. If there is none, the new file goes in `docs/` when the project has that directory, and at the root otherwise. Read the file if it exists, and note the `gleaned_at` timestamp in its opening comment.
+2. Read the `## Learnings` sections of the stories in `done/` that are new since the last glean. Don't invent learnings for a story whose section is missing or says "None". If there is no file and no story has learnings, say so and stop.
+   - A story is new when its `finished_at` or `updated_at` is later than `gleaned_at`, or, in a git repo, when `git log --since=<gleaned_at> --name-only -- user-stories/done/` lists it. The git check catches edits made by hand, which don't refresh `updated_at`.
+   - Read every story when the file is missing, has no `gleaned_at`, or the command has `--all`.
+   - The older stories still count toward recurrence. When a new learning doesn't qualify on its own in step 3, search their `## Learnings` sections for the same lesson before leaving it out.
 3. Decide what belongs in the file. One bar applies to new learnings and to the entries already there. An entry belongs when it is both:
    - worth the space: the lesson recurs in two or more stories, or it appears once but ignoring it would be costly or would change how another story is planned, built, or reviewed; and
    - news to its reader: a capable agent new to this project would act differently for having read it. That rules out general engineering practice (read the code first, run the tests, keep commits small), Claude Code's default behavior, what CLAUDE.md already says, and what the code, tests, or linter enforce.
@@ -117,10 +120,18 @@ Distill the learnings of finished stories into the project's learnings file, and
    - Remove entries that fail the bar, and entries about code or process that has since changed. Hand-written entries get no exemption, but if you can't tell whether an entry still applies, keep it and ask the user.
    - If the stories contradict an existing entry, leave it alone and tell the user.
    - Tighten long or vague wording without changing what an entry says.
-   - Follow the file's existing entry format. In a new file, start with a title and a sentence on what the file is for, group entries under theme headings (planning, testing, and so on), and write each entry as a bullet: the lesson in bold, stated as guidance that applies beyond the story it came from; a sentence or two of concrete evidence; then the source stories as plain paths (`user-stories/done/<name>.md`).
+   - Follow the file's existing entry format. In a new file, start with the `gleaned_at` comment, then a title and a sentence on what the file is for, group entries under theme headings (planning, testing, and so on), and write each entry as a bullet: the lesson in bold, stated as guidance that applies beyond the story it came from; a sentence or two of concrete evidence; then the source stories as plain paths (`user-stories/done/<name>.md`).
 5. Keep the file within 30 entries and 1,500 words (check with `wc -w`). If it is still over after step 4, cut the entries that matter least: those with one source story, narrow reach, or a low cost if ignored. A new learning goes in only if it is worth more than the entry it displaces.
 6. Make sure the project's CLAUDE.md (at the root or in `.claude/`) points to the learnings file, giving its path and when to read it, such as before planning a story. If CLAUDE.md already names the path, leave it. Otherwise add the line to an existing references or docs section, or to a new `## References` section. Use a plain path, not an `@` import, so the file is read when needed instead of loaded into every session. If there is no CLAUDE.md, create one holding just this reference.
-7. Report the entries added, the entries that gained sources, the entries removed or combined and why, the stories with no learnings, and any contradictions. Don't commit.
+7. Set `gleaned_at` to the current time, in the timestamp format of the story metadata. It goes in a comment that opens the file, followed by a blank line; add the comment if the file lacks it:
+
+   ```markdown
+   <!--
+   metadata:
+     gleaned_at: 2026-06-14T11:45:33-07:00
+   -->
+   ```
+8. Report the stories read, the entries added, the entries that gained sources, the entries removed or combined and why, the stories with no learnings, and any contradictions. Don't commit.
 
 ### `open`
 
